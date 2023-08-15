@@ -1,0 +1,232 @@
+{% extends "layout.html" %}
+{% block title %}Upload{% endblock %}
+{% block content %}
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Upload Excel File</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <style>
+   
+  .data-table th, .data-table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+      margin-left: 0;
+  }
+  .data-table th {
+      background-color: #f2f2f2;
+      margin-left: 0;
+  }
+  .center-content {
+    display: flex;
+    margin-left: 0;
+    align-items: center;
+    min-height: 100vh;
+   
+  }
+
+  .data-table {
+    /* الأنماط السابقة */
+    margin-left: 0;
+    width:2300px;
+      max-width: 1500px;
+      border-collapse: collapse;
+  }
+  </style>
+</head>
+<body>
+  <div class="center-content">
+  <div class="container mt-5">
+    <div class="row">
+      <div class="col-md-6 mx-auto">
+        <h1 class="mb-4">Upload Excel File</h1>
+        <form id="uploadForm" enctype="multipart/form-data">
+          <div class="form-group">
+            <label for="excel_file">Choose Excel File:</label>
+            <input type="file" id="fileInput" accept=".xlsx, .xls" required class="form-control">
+          </div>
+          <button class="btn btn-success" type="button" onclick="readExcelFile()">Upload and Process</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mt-5" id="tableContainer" style="display: none;">
+    <table class="data-table">
+      <thead>
+        <tr id="headerRow">
+          <!-- Header will be dynamically added after reading the Excel file -->
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <!-- Data rows will be dynamically added after reading the Excel file -->
+      </tbody>
+    </table>
+    <button class="btn btn-primary mt-3" id="finishButton" onclick="finishDataEntry()" style="display: none;">Finish</button>
+    <button class="btn btn-primary mt-3" id="createFormButton" onclick="createForm()" style="display: none;">Create Form</button>
+    <a class="btn btn-primary mt-3" href="Attachments.html" style="display: none;">Attachments Page</a>
+  </div>
+
+  <div class="container mt-5" id="printContainer" style="display: none;">
+    <h2>Printed Data</h2>
+    <pre id="printedData"></pre>
+    <br>
+    <button class="btn btn-primary" onclick="goBack()">Go Back</button>
+    <button class="btn btn-primary" onclick="saveAttachedFile()">Save and View Attachments</button>
+  </div>
+
+  <form id="dataTableForm" action="/submit_table_data" method="post" style="display: none;">
+    <input type="hidden" id="tableDataInput" name="tableData">
+    <button class="btn btn-primary mt-3" type="submit">Submit Form</button>
+  </form>
+</div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+ <script>
+    let tableData = [];
+    let headers = ['Authors', 'Article Title', 'Author Keywords', 'Abstract', 'Affiliations', 'Email Addresses', 'Funding Orgs', 'Publication Year'];
+
+    function readExcelFile() {
+      const fileInput = document.getElementById('fileInput');
+      const file = fileInput.files[0];
+
+      if (!file) {
+        alert('Please select an Excel file.');
+        return;
+      }
+
+      const reader = new FileReader();
+
+      reader.onload = function (e) {
+        const data = e.target.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+
+        // Extract data for the specified columns
+        tableData = [];
+        for (let r = range.s.r + 1; r <= range.e.r; r++) {
+          const rowData = [];
+          for (const colIndex of [1, 8, 19, 21, 23, 25, 28, 46]) {
+            const cellAddress = { c: colIndex, r };
+            const cellValue = worksheet[XLSX.utils.encode_cell(cellAddress)];
+            rowData.push(cellValue ? cellValue.v : '');
+          }
+          tableData.push(rowData);
+        }
+
+        displayTable();
+      };
+      reader.readAsBinaryString(file);
+    }
+
+    function displayTable() {
+      const tableContainer = document.getElementById('tableContainer');
+      const tableBody = document.getElementById('tableBody');
+      const finishButton = document.getElementById('finishButton');
+      const attachmentsPageButton = document.querySelector('#tableContainer a');
+
+      // Display header
+      const headerRow = document.getElementById('headerRow');
+      headerRow.innerHTML = '';
+      for (const header of headers) {
+        const th = document.createElement('th');
+        th.textContent = header;
+        headerRow.appendChild(th);
+      }
+
+      // Display data rows
+      tableBody.innerHTML = '';
+      for (let i = 0; i < tableData.length; i++) {
+        const rowData = tableData[i];
+        const dataRow = document.createElement('tr');
+
+        for (let j = 0; j < rowData.length; j++) {
+          const td = document.createElement('td');
+          td.textContent = rowData[j];
+
+          // If data is missing, display a text box to write the missing information
+          if (!rowData[j]) {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = Enter ${headers[j]};
+            input.setAttribute('data-row', i);
+            input.setAttribute('data-column', j);
+            input.addEventListener('blur', updateData);
+            td.appendChild(input);
+          }
+
+          dataRow.appendChild(td);
+        }
+
+        tableBody.appendChild(dataRow);
+      }
+
+      tableContainer.style.display = 'block';
+      finishButton.style.display = isDataComplete() ? 'none' : 'block';
+      attachmentsPageButton.style.display = 'block';
+    }
+
+    function updateData(event) {
+      const row = event.target.getAttribute('data-row');
+      const column = event.target.getAttribute('data-column');
+      const newValue = event.target.value;
+
+      // Handle validation for Publication Year
+      if (headers[column] === 'Publication Year') {
+        if (newValue && !isValidYear(newValue)) {
+          alert('Please enter a valid year.');
+          event.target.value = '';
+          return;
+        }
+      }
+
+      tableData[row][column] = newValue;
+    }
+
+    function isValidYear(value) {
+      return /^\d{4}$/.test(value);
+    }
+
+    function isDataComplete() {
+      // Check if there are any missing values in the tableData
+      for (let i = 0; i < tableData.length; i++) {
+        const rowData = tableData[i];
+        for (let j = 0; j < rowData.length; j++) {
+          if (!rowData[j]) {
+            return false; // Missing data found
+          }
+        }
+      }
+      return true; // All data is complete
+    }
+
+    function finishDataEntry() {
+      displayTable();
+      document.getElementById('finishButton').style.display = 'none';
+      document.getElementById('createFormButton').style.display = 'block';
+      document.getElementById('dataTableForm').style.display = 'block';
+      document.getElementById('tableDataInput').value = JSON.stringify(tableData);
+    }
+
+    function createForm() {
+      const formattedData = formatTableData();
+      document.getElementById('printedData').textContent = formattedData;
+      document.getElementById('tableContainer').style.display = 'none';
+      document.getElementById('printContainer').style.display = 'block';
+    }
+
+    function saveAttachedFile() {
+      // Simulate saving the attached file data to the server
+      alert('File saved successfully.');
+    }
+
+    function goBack() {
+      document.getElementById('tableContainer').style.display = 'block';
+      document.getElementById('printContainer').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
+{% endblock %}
